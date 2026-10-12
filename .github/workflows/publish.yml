@@ -4,8 +4,8 @@ name: Publish image
 # a new base image, or Debian or Python package updates
 on:
   schedule:
-    # Daily at 06:47 in Brisbane
-    - cron: "47 20 * * *"
+    # Daily at 04:03 in Brisbane, staggered with the other docker-* repos to publish by 05:00
+    - cron: "3 18 * * *"
   workflow_dispatch:
     inputs:
       force:
