@@ -74,10 +74,10 @@ passes_unit_tests() {
     return "$status"
 }
 
-runs_as_non_root() {
-    local uid
-    uid=$(in_image id -u)
-    [ "$uid" != 0 ] || { echo "Runs as root"; return 1; }
+runs_as_1000() {
+    local ids
+    ids=$(in_image sh -c 'echo "$(id -u):$(id -g)"')
+    [ "$ids" = 1000:1000 ] || { echo "Runs as $ids"; return 1; }
 }
 
 has_tzdata() {
@@ -179,7 +179,7 @@ packages_up_to_date() {
 
 echo "Testing '$IMAGE' ..."
 check "unit tests pass" passes_unit_tests
-check "runs as a non-root user" runs_as_non_root
+check "runs as user and group 1000" runs_as_1000
 check "tzdata is installed" has_tzdata
 check "Python dependencies are consistent" python_dependencies_ok
 check "starts alongside a fake qBittorrent" starts_with_fake_qbittorrent

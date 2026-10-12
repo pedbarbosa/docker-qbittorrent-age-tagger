@@ -30,7 +30,7 @@ services:
     restart: unless-stopped
 ```
 
-The image runs as user `1000`. If that user can't read `qBittorrent.conf`, run it as the user qBittorrent runs as, for example `user: "${PUID}:${PGID}"`.
+The image runs as user and group `1000`. If that user can't read `qBittorrent.conf`, run it as the user qBittorrent runs as, for example `user: "${PUID}:${PGID}"`.
 
 ### Settings
 
