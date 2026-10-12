@@ -1,0 +1,195 @@
+#!/usr/bin/env bash
+# Image tests, run by docker-image-refresh after building a new image and
+# before tagging it 'latest'. Usage: ./test <image>
+
+# The check functions are called indirectly, through 'check'
+# shellcheck disable=SC2329
+
+set -euo pipefail
+
+if [ $# -ne 1 ]; then
+    echo "Usage: $0 <image>" >&2
+    exit 2
+fi
+IMAGE=$1
+cd "$(dirname "$0")"
+
+FAILED=0
+FAKE="age-tagger-test-qbittorrent-$$"
+TAGGER="age-tagger-test-$$"
+STANDALONE="age-tagger-test-standalone-$$"
+API_KEY="test-key-$$"
+TAG=older-than-15-days
+WORK=$(mktemp -d)
+
+cleanup() {
+    docker rm --force "$TAGGER" "$STANDALONE" "$FAKE" >/dev/null 2>&1 || true
+    rm -rf "$WORK"
+}
+trap cleanup EXIT
+
+check() {
+    local name=$1 output
+    shift
+    if output=$("$@" 2>&1); then
+        echo "PASS: $name"
+    else
+        echo "FAIL: $name"
+        [ -z "$output" ] || echo "    ${output//$'\n'/$'\n'    }"
+        FAILED=1
+    fi
+}
+
+in_image() {
+    docker run --rm "$IMAGE" "$@"
+}
+
+# Files are copied in rather than bind mounted, so the tests also work
+# against a remote Docker daemon
+with_tests() {
+    local container
+    container=$(docker create --no-healthcheck "$@")
+    docker cp tests/. "$container:/tests" >/dev/null
+    echo "$container"
+}
+
+wait_for_health() {
+    local container=$1 expected=$2 status
+    for _ in {1..30}; do
+        status=$(docker inspect --format '{{if .State.Running}}{{.State.Health.Status}}{{else}}exited{{end}}' "$container")
+        [ "$status" = "$expected" ] && return 0
+        [ "$status" = "exited" ] && break
+        sleep 1
+    done
+    echo "Health status: $status"
+    docker logs --tail 20 "$container"
+    return 1
+}
+
+passes_unit_tests() {
+    local container status=0
+    container=$(with_tests "$IMAGE" python -m unittest discover -v /tests)
+    docker start --attach "$container" || status=$?
+    docker rm "$container" >/dev/null
+    return "$status"
+}
+
+runs_as_non_root() {
+    local uid
+    uid=$(in_image id -u)
+    [ "$uid" != 0 ] || { echo "Runs as root"; return 1; }
+}
+
+has_tzdata() {
+    in_image sh -c 'test -f /usr/share/zoneinfo/Australia/Brisbane && TZ=Australia/Brisbane date +%Z | grep -x AEST'
+}
+
+python_dependencies_ok() {
+    in_image python -m pip --no-cache-dir check
+}
+
+# The fake qBittorrent listens on 127.0.0.1 and the tagger shares its network
+# namespace, as it does with gluetun's in server-stack
+starts_with_fake_qbittorrent() {
+    local container
+    mkdir -p "$WORK/secrets"
+    printf '[Preferences]\r\nWebUI\\Port=8090\r\nWebUI\\APIKey=%s\r\n' "$API_KEY" > "$WORK/secrets/qbit.conf"
+    chmod 644 "$WORK/secrets/qbit.conf"
+
+    container=$(with_tests --name "$FAKE" --env FAKE_API_KEY="$API_KEY" --env FAKE_TAG="$TAG" \
+        "$IMAGE" python -u /tests/fake_qbittorrent.py)
+    docker start "$container" >/dev/null
+
+    docker create --name "$TAGGER" --network "container:$FAKE" --env CHECK_INTERVAL=3 \
+        --health-interval=2s --health-start-period=0s "$IMAGE" >/dev/null
+    docker cp "$WORK/secrets/." "$TAGGER:/run/secrets" >/dev/null
+    docker start "$TAGGER" >/dev/null
+}
+
+# Runs Python code against the fake qBittorrent's state, as 's', inside its
+# container so the host needs no Python
+fake_state() {
+    docker exec "$FAKE" python -c \
+        "import json, urllib.request; s = json.load(urllib.request.urlopen('http://127.0.0.1:8090/state')); $1"
+}
+
+tags_old_and_untags_new_torrents() {
+    local expected state
+    expected=$(printf '{"new": ["tv"], "new-tagged": ["tv"], "old": ["%s"], "old-tagged": ["movies", "%s"]}' "$TAG" "$TAG")
+    for _ in {1..20}; do
+        state=$(fake_state \
+            't = s["torrents"]; print(json.dumps({h: t[h]["tags"] for h in sorted(t)}))' 2>/dev/null) || state=""
+        [ "$state" = "$expected" ] && return 0
+        sleep 1
+    done
+    echo "Expected: $expected"
+    echo "Got:      $state"
+    docker logs --tail 20 "$TAGGER"
+    return 1
+}
+
+sends_api_key() {
+    local rejected
+    rejected=$(fake_state 'print("\n".join(s["rejected"]))') || return 1
+    [ -z "$rejected" ] || { echo "Rejected requests:"; echo "$rejected"; return 1; }
+}
+
+becomes_healthy() {
+    wait_for_health "$TAGGER" healthy
+}
+
+logs_no_errors() {
+    local logs
+    logs=$(docker logs "$TAGGER" 2>&1)
+    grep -q 'Checked 4 torrents; added tag to 1, removed from 1' <<<"$logs" || { echo "$logs" | tail -20; return 1; }
+    ! grep -E 'ERROR|Traceback' <<<"$logs"
+}
+
+stops_promptly() {
+    local start elapsed
+    start=$(date +%s)
+    docker stop "$TAGGER" >/dev/null
+    elapsed=$(( $(date +%s) - start ))
+    [ "$elapsed" -lt 5 ] || { echo "Took ${elapsed}s to stop"; return 1; }
+    docker logs --tail 1 "$TAGGER" 2>&1 | grep 'age tagger stopped'
+}
+
+# As docker-image-refresh runs it for its healthcheck: no config and no
+# qBittorrent, which must be logged without stopping the loop
+stays_healthy_without_config() {
+    docker run --detach --name "$STANDALONE" --env CHECK_INTERVAL=3 \
+        --health-interval=2s --health-start-period=0s "$IMAGE" >/dev/null || return 1
+    wait_for_health "$STANDALONE" healthy || return 1
+    docker logs "$STANDALONE" 2>&1 | grep 'Cannot read qBittorrent config file'
+}
+
+unhealthy_with_stale_heartbeat() {
+    in_image sh -c 'touch -d @0 /tmp/heartbeat && ! python /app/tagger.py healthcheck'
+}
+
+# Fails when Debian's repositories can't be reached, as well as when
+# packages are out of date
+packages_up_to_date() {
+    local output
+    output=$(docker run --rm --user root "$IMAGE" sh -c \
+        'apt-get update -qq --error-on=any && apt-get -s -q --with-new-pkgs upgrade' 2>&1) \
+        || { echo "$output"; return 1; }
+    ! grep '^Inst ' <<<"$output"
+}
+
+echo "Testing '$IMAGE' ..."
+check "unit tests pass" passes_unit_tests
+check "runs as a non-root user" runs_as_non_root
+check "tzdata is installed" has_tzdata
+check "Python dependencies are consistent" python_dependencies_ok
+check "starts alongside a fake qBittorrent" starts_with_fake_qbittorrent
+check "tags old torrents and untags new ones" tags_old_and_untags_new_torrents
+check "authenticates with the API key from the config" sends_api_key
+check "reports healthy" becomes_healthy
+check "logs its cycles without errors" logs_no_errors
+check "stops promptly on 'docker stop'" stops_promptly
+check "stays healthy without config or qBittorrent" stays_healthy_without_config
+check "reports unhealthy with a stale heartbeat" unhealthy_with_stale_heartbeat
+check "Debian packages are up to date" packages_up_to_date
+
+exit $FAILED
