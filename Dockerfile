@@ -4,6 +4,9 @@ LABEL org.opencontainers.image.authors="Pedro Barbosa, https://github.com/pedbar
 
 COPY requirements.txt /tmp/requirements.txt
 
+# For the build only, so apt doesn't try to prompt
+ARG DEBIAN_FRONTEND=noninteractive
+
 RUN \
     echo "**** update and upgrade packages ****" && \
     apt-get update --error-on=any && apt-get upgrade -y && \
@@ -12,7 +15,7 @@ RUN \
     echo "**** install Python dependencies ****" && \
     pip install --no-cache-dir --root-user-action=ignore -r /tmp/requirements.txt && \
     echo "**** create the tagger user ****" && \
-    useradd --system --uid 1000 --no-create-home --shell /usr/sbin/nologin tagger && \
+    useradd --uid 1000 --user-group --no-create-home --shell /usr/sbin/nologin tagger && \
     echo "**** clean up ****" && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/* /tmp/*
