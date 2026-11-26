@@ -4,7 +4,7 @@
 
 This repository contains a Dockerfile to build a Docker image that tags qBittorrent torrents by age. Every hour it adds the `older-than-15-days` tag to torrents added more than 15 days ago, and removes it from any newer torrent that has it.
 
-It talks to the qBittorrent WebUI API with the API key from qBittorrent's config file (`WebUI\APIKey`), so it needs read access to `qBittorrent.conf`.
+It talks to the qBittorrent WebUI API with the API key from qBittorrent's config file (`APIKey` in its `[WebUI]` section), so it needs read access to `qBittorrent.conf`.
 
 The Docker image is available in [Docker Hub](https://hub.docker.com/r/pedbarbosa/qbittorrent-age-tagger/).
 
@@ -37,7 +37,7 @@ The image runs as user and group `1000`. If that user can't read `qBittorrent.co
 | Variable | Default | |
 |---|---|---|
 | `QB_URL` | `http://127.0.0.1:8090` | qBittorrent WebUI address |
-| `QB_CONFIG_FILE` | `/run/secrets/qbit.conf` | qBittorrent config file holding `WebUI\APIKey` |
+| `QB_CONFIG_FILE` | `/run/secrets/qbit.conf` | qBittorrent config file holding the `[WebUI]` `APIKey` |
 | `AGE_DAYS` | `15` | Age at which torrents are tagged |
 | `AGE_TAG` | `older-than-<AGE_DAYS>-days` | Tag to add and remove |
 | `CHECK_INTERVAL` | `3600` | Seconds between checks |

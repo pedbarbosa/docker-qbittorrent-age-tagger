@@ -93,7 +93,7 @@ python_dependencies_ok() {
 starts_with_fake_qbittorrent() {
     local container
     mkdir -p "$WORK/secrets"
-    printf '[Preferences]\r\nWebUI\\Port=8090\r\nWebUI\\APIKey=%s\r\n' "$API_KEY" > "$WORK/secrets/qbit.conf"
+    printf '[Preferences]\r\nWebUI\\Port=8090\r\n\r\n[WebUI]\r\nAPIKey=%s\r\n' "$API_KEY" > "$WORK/secrets/qbit.conf"
     chmod 644 "$WORK/secrets/qbit.conf"
 
     container=$(with_tests --name "$FAKE" --env FAKE_API_KEY="$API_KEY" --env FAKE_TAG="$TAG" \

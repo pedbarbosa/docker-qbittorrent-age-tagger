@@ -31,6 +31,23 @@ class ReadApiKeyTest(unittest.TestCase):
         path = self.write_config("[Preferences]\nWebUI\\Port=8090\nWebUI\\APIKey=abc123\n")
         self.assertEqual(tagger.read_api_key(path), "abc123")
 
+    def test_reads_key_from_webui_section(self):
+        path = self.write_config(
+            "[Preferences]\r\nWebUI\\Port=8090\r\n\r\n"
+            "[RSS]\r\nAutoDownloader\\DownloadRepacks=true\r\n\r\n"
+            "[WebUI]\r\nAPIKey=abc123\r\n"
+        )
+        self.assertEqual(tagger.read_api_key(path), "abc123")
+
+    def test_ignores_api_key_outside_webui_section(self):
+        path = self.write_config("[Other]\nAPIKey=other\n\n[WebUI]\nAPIKey=abc123\n")
+        self.assertEqual(tagger.read_api_key(path), "abc123")
+
+    def test_empty_key_in_webui_section(self):
+        path = self.write_config("[WebUI]\nAPIKey=\n")
+        with self.assertRaisesRegex(tagger.ConfigError, "empty"):
+            tagger.read_api_key(path)
+
     def test_strips_whitespace(self):
         path = self.write_config("WebUI\\APIKey = abc123 \r\n")
         self.assertEqual(tagger.read_api_key(path), "abc123")
