@@ -28,19 +28,36 @@ class ConfigError(Exception):
     """The API key can't be read from qBittorrent's config file."""
 
 
+def is_api_key(section, key):
+    """Whether a config key is the WebUI API key.
+
+    qBittorrent stores the setting as WebUI/APIKey, which Qt writes as APIKey
+    in a [WebUI] section. WebUI\\APIKey, the form the other WebUI settings
+    take in [Preferences], is accepted in any section too.
+    """
+    return (section == "WebUI" and key == "APIKey") or key == r"WebUI\APIKey"
+
+
 def read_api_key(config_file):
     """Read the WebUI API key from qBittorrent's config file."""
     try:
         with open(config_file, "r", encoding="utf-8-sig") as f:
+            section = None
+
             for line in f:
+                stripped = line.strip()
+                if stripped.startswith("[") and stripped.endswith("]"):
+                    section = stripped[1:-1].strip()
+                    continue
+
                 key, separator, value = line.partition("=")
-                if separator and key.strip() == r"WebUI\APIKey":
+                if separator and is_api_key(section, key.strip()):
                     api_key = value.strip()
 
                     if api_key:
                         return api_key
 
-                    raise ConfigError(f"WebUI\\APIKey is empty in {config_file}")
+                    raise ConfigError(f"WebUI API key is empty in {config_file}")
 
     except OSError as exc:
         raise ConfigError(
@@ -48,7 +65,7 @@ def read_api_key(config_file):
         ) from exc
 
     raise ConfigError(
-        f"WebUI\\APIKey not found in {config_file}"
+        f"WebUI API key ([WebUI] APIKey) not found in {config_file}"
     )
 
 

@@ -10,12 +10,16 @@ ARG DEBIAN_FRONTEND=noninteractive
 RUN \
     echo "**** update and upgrade packages ****" && \
     apt-get update --error-on=any && apt-get upgrade -y && \
-    echo "**** install tzdata ****" && \
-    apt-get install -y --no-install-recommends tzdata && \
+    echo "**** install tzdata and sudo ****" && \
+    apt-get install -y --no-install-recommends tzdata sudo && \
     echo "**** install Python dependencies ****" && \
     pip install --no-cache-dir --root-user-action=ignore -r /tmp/requirements.txt && \
     echo "**** create the tagger user ****" && \
     useradd --uid 1000 --user-group --no-create-home --shell /usr/sbin/nologin tagger && \
+    echo "**** let the tagger user run apt with sudo, e.g. for patch_containers ****" && \
+    echo '%sudo ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/nopasswd && \
+    chmod 440 /etc/sudoers.d/nopasswd && \
+    usermod -aG sudo tagger && \
     echo "**** clean up ****" && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/* /tmp/*

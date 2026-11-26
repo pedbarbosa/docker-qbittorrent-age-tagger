@@ -1,0 +1,34 @@
+name: Tests
+
+# Builds the image and runs ./test against it, as ./rebuild does before
+# publishing: the unit tests inside the image, then the image checks
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  IMAGE: qbittorrent-age-tagger:test
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Build the image
+        run: docker build --pull --tag "$IMAGE" .
+
+      - name: Run the image tests
+        run: ./test "$IMAGE"
