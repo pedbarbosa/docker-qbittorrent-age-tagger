@@ -84,6 +84,11 @@ has_tzdata() {
     in_image sh -c 'test -f /usr/share/zoneinfo/Australia/Brisbane && TZ=Australia/Brisbane date +%Z | grep -x AEST'
 }
 
+# patch_containers and one-off installs run 'sudo apt' as the image's user
+runs_apt_with_sudo() {
+    in_image sh -c '[ "$(sudo -n id -u)" = 0 ] && sudo -n apt-get --version >/dev/null'
+}
+
 python_dependencies_ok() {
     in_image python -m pip --no-cache-dir check
 }
@@ -181,6 +186,7 @@ echo "Testing '$IMAGE' ..."
 check "unit tests pass" passes_unit_tests
 check "runs as user and group 1000" runs_as_1000
 check "tzdata is installed" has_tzdata
+check "runs apt as root with sudo, without a password" runs_apt_with_sudo
 check "Python dependencies are consistent" python_dependencies_ok
 check "starts alongside a fake qBittorrent" starts_with_fake_qbittorrent
 check "tags old torrents and untags new ones" tags_old_and_untags_new_torrents

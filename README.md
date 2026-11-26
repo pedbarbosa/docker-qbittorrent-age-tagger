@@ -32,6 +32,8 @@ services:
 
 The image runs as user and group `1000`. If that user can't read `qBittorrent.conf`, run it as the user qBittorrent runs as, for example `user: "${PUID}:${PGID}"`.
 
+The `tagger` user (`1000`) can run any command as root with `sudo` and no password, so `patch_containers` or a one-off `sudo apt install` work in the running container. sudo needs the user to exist in the image, so under any other user use `docker exec --user root` instead.
+
 ### Settings
 
 | Variable | Default | |
@@ -56,6 +58,8 @@ A failed check, with qBittorrent down or the API key missing, doesn't make it un
 `./rebuild` builds, tests and publishes the image with [docker-image-refresh](https://gist.github.com/pedbarbosa/5a6ea23c8bcaf90f063eb0a082277d79), which runs `./test <image>` and the image's healthcheck before tagging it `latest`.
 
 The [Publish image](.github/workflows/publish.yml) workflow checks the published image daily and runs `./rebuild` when it's out of date: new commits (other than docs and CI), a new `python` base image, or Debian or Python package updates. It can also be run by hand, with `force` to publish regardless. It needs a `DOCKERHUB_TOKEN` repository secret, a Docker Hub access token with Read, Write and Delete access so old tags can be pruned, and sends failures to the Slack incoming webhook in the `SLACK_WEBHOOK_URL` secret.
+
+The [Tests](.github/workflows/tests.yml) workflow builds the image and runs `./test` against it on every pull request and push to `main`.
 
 `./test` runs the unit tests in `tests/` inside the image, then starts the tagger alongside a fake qBittorrent API (`tests/fake_qbittorrent.py`) sharing its network, as with gluetun, and checks the tags it ends up with, its healthcheck and its shutdown. To run the unit tests outside Docker:
 
